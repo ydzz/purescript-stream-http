@@ -1,63 +1,13 @@
 module Network.HTTP where
 import Prelude
-import Node.URL as URL
-import Data.Options (Option, Options(..), opt, options)
+
+import Data.Options (Option, Options, opt, options)
 import Effect (Effect)
 import Foreign (Foreign, unsafeToForeign)
 import Foreign.Object (Object)
-
-mCHECKOUT :: String
-mCHECKOUT    = "CHECKOUT"
-mCONNECT :: String
-mCONNECT     = "CONNECT"
-mCOPY :: String
-mCOPY        = "COPY"
-mDELETE :: String
-mDELETE      = "DELETE"
-mGET :: String
-mGET         = "GET"
-mHEAD :: String
-mHEAD        = "HEAD"
-mLOCK :: String
-mLOCK        = "LOCK"
-mM_SEARCH :: String
-mM_SEARCH    = "M_SEARCH"
-mMERGE :: String
-mMERGE       = "MERGE"
-mMKACTIVITY :: String
-mMKACTIVITY  = "MKACTIVITY"
-mMKCOL :: String
-mMKCOL       = "MKCOL"
-mMOVE :: String
-mMOVE        = "MOVE"
-mNOTIFY :: String
-mNOTIFY      = "NOTIFY"
-mOPTIONS :: String
-mOPTIONS     = "OPTIONS"
-mPATCH :: String
-mPATCH       = "PATCH"
-mPOST :: String
-mPOST        = "POST"
-mPROPFIND :: String
-mPROPFIND    = "PROPFIND"
-mPROPPATCH :: String
-mPROPPATCH   = "PROPPATCH"
-mPURGE :: String
-mPURGE       = "PURGE"
-mPUT :: String
-mPUT         = "PUT"
-mREPORT :: String
-mREPORT      = "REPORT"
-mSEARCH :: String
-mSEARCH      = "SEARCH"
-mSUBSCRIBE :: String
-mSUBSCRIBE   = "SUBSCRIBE"
-mTRACE :: String
-mTRACE       = "TRACE"
-mUNLOCK :: String
-mUNLOCK      = "UNLOCK"
-mUNSUBSCRIBE :: String
-mUNSUBSCRIBE = "UNSUBSCRIBE"
+import Node.Stream (Readable, Writable)
+import Node.URL as URL
+import Unsafe.Coerce (unsafeCoerce)
 
 data RequestFamily = IPV4 | IPV6
 
@@ -92,9 +42,7 @@ key = opt "key"
 cert :: Option RequestOptions String
 cert = opt "cert"
 
-foreign import data Request :: Type
 
-foreign import data Response :: Type
 
 foreign import requestImpl :: Foreign -> (Response -> Effect Unit) -> Effect Request
 
@@ -103,6 +51,17 @@ foreign import setTimeout :: Request -> Int -> Effect Unit -> Effect Unit
 
 request :: Options RequestOptions -> (Response -> Effect Unit) -> Effect Request
 request = requestImpl <<< options
+
+
+foreign import data Request :: Type
+
+foreign import data Response :: Type
+
+responseAsStream :: forall w. Response -> Readable w
+responseAsStream = unsafeCoerce
+
+requestAsStream :: forall r. Request -> Writable r
+requestAsStream = unsafeCoerce
 
 requestFromURI :: String -> (Response -> Effect Unit) -> Effect Request
 requestFromURI = requestImpl <<< unsafeToForeign <<< URL.parse
