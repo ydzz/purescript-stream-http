@@ -1,67 +1,97 @@
-module Network.HTTP where
+module Network.HTTP (
+  fetchFullBuffer,
+  fetchFullString,
+  request,
+  RequestMethod(..)
+) where
+
 import Prelude
 
-import Data.Options (Option, Options, opt, options)
+import Data.Either (Either(..))
+import Data.Options (options, (:=))
+import Data.Tuple.Nested ((/\))
 import Effect (Effect)
-import Foreign (Foreign, unsafeToForeign)
-import Foreign.Object (Object)
-import Node.Stream (Readable, Writable)
+import Effect.Aff (Aff, Canceler(..), Error, makeAff)
+import Effect.Class (liftEffect)
+import Effect.Ref as Ref
+import Effect.Unsafe (unsafePerformEffect)
+import Foreign (Foreign)
+import Foreign.Object as O
+import Network.HTTP.Internal as Internal
+import Node.Buffer as Buf
+import Node.Encoding (Encoding(..))
+import Node.Stream (Readable, Writable, end, onData, onEnd, onError)
 import Node.URL as URL
 import Unsafe.Coerce (unsafeCoerce)
 
-data RequestFamily = IPV4 | IPV6
+data RequestMethod = HEAD  | PUT | GET | POST | DELETE | OPTIONS |
+                     TRACE | CONNECT | Custom String
 
-data RequestOptions
+derive instance eqRequestMethod :: Eq RequestMethod
+instance showRequestMethod :: Show RequestMethod where
+   show HEAD       = "HEAD"
+   show PUT        = "PUT"
+   show GET        = "GET"
+   show POST       = "POST"
+   show DELETE     = "DELETE"
+   show OPTIONS    = "OPTIONS"
+   show TRACE      = "TRACE"
+   show CONNECT    = "CONNECT"
+   show (Custom s) = s
 
-newtype RequestHeaders = RequestHeaders (Object String)
+type Request =  {
+  reqURL    ::URL.URL,
+  reqMethod ::RequestMethod,
+  reqHeader ::O.Object String
+}
 
-protocol :: Option RequestOptions String
-protocol = opt "protocol"
+request::forall w. Request -> ((Readable w) -> Effect Unit) -> Effect (Writable w)
+request req callback = do
+  let obj = reqToObject req
+  Internal.requestImpl obj callback
 
-hostname :: Option RequestOptions String
-hostname = opt "hostname"
-
-port :: Option RequestOptions Int
-port = opt "port"
-
-method :: Option RequestOptions String
-method = opt "method"
-
-path :: Option RequestOptions String
-path = opt "path"
-
-headers :: Option RequestOptions RequestHeaders
-headers = opt "headers"
-
-auth :: Option RequestOptions String
-auth = opt "auth"
-
-key :: Option RequestOptions String
-key = opt "key"
-
-cert :: Option RequestOptions String
-cert = opt "cert"
-
-
-
-foreign import requestImpl :: Foreign -> (Response -> Effect Unit) -> Effect Request
-
-foreign import setTimeout :: Request -> Int -> Effect Unit -> Effect Unit
+reqToObject::Request -> Foreign
+reqToObject req = options $ 
+                  Internal.hostname := (unsafeCoerce req.reqURL.hostname) <>
+                  Internal.protocol := (unsafeCoerce req.reqURL.protocol) <>
+                  Internal.port     := (unsafeCoerce req.reqURL.port) <>
+                  Internal.path     := (unsafeCoerce req.reqURL.path) <>
+                  Internal.method   := show req.reqMethod <>
+                  Internal.headers  := Internal.RequestHeaders req.reqHeader
 
 
-request :: Options RequestOptions -> (Response -> Effect Unit) -> Effect Request
-request = requestImpl <<< options
+fetchFullString::String -> Aff (Either Error String)
+fetchFullString url = do
+  buff <- fetchFullBuffer url
+  case buff of
+    Left err -> pure $ Left err 
+    Right r  -> do 
+      strBuf <- liftEffect $ (Buf.toString UTF8 r)
+      pure $ Right strBuf
 
-
-foreign import data Request :: Type
-
-foreign import data Response :: Type
-
-responseAsStream :: forall w. Response -> Readable w
-responseAsStream = unsafeCoerce
-
-requestAsStream :: forall r. Request -> Writable r
-requestAsStream = unsafeCoerce
-
-requestFromURI :: String -> (Response -> Effect Unit) -> Effect Request
-requestFromURI = requestImpl <<< unsafeToForeign <<< URL.parse
+fetchFullBuffer::String -> Aff (Either Error Buf.Buffer)
+fetchFullBuffer url = do
+  makeAff runRequest
+ where
+  reqOptions = {reqURL : URL.parse url,reqMethod:GET,reqHeader:O.fromFoldable ["Access-Control-Allow-Origin" /\ "*"]}
+  runRequest::(Either Error (Either Error Buf.Buffer) -> Effect Unit) -> Effect Canceler
+  runRequest ef = do
+    reqWriter <- request reqOptions (onReadFunc ef)
+    end reqWriter (pure unit)
+    onError reqWriter \err -> do
+        ef $ Right $ Left err
+    pure $ Canceler (\e -> pure unit)
+  onReadFunc::forall w. (Either Error (Either Error Buf.Buffer) -> Effect Unit) -> (Readable w) -> Effect Unit
+  onReadFunc ef read = do
+   emptyBuff <- Buf.create 0
+   recvBuff <- Ref.new emptyBuff
+   onData read  (\inBuffer -> do
+     Ref.modify_ (\srcBuf -> unsafePerformEffect $ Buf.concat [srcBuf,inBuffer]) recvBuff
+   )
+   onEnd read $ do
+    allBuff <- Ref.read recvBuff
+    ef $ Right $ Right allBuff
+   --onError read \err -> do
+   --     logShow "errrrrrrrrrrrrrrrrrrrrrr"
+   --     ef $ Right $ Left err
+   pure unit

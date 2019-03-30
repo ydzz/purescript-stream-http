@@ -4,12 +4,8 @@ exports.requestImpl = function (opts) {
     return function (k) {
       return function () {
         var req = lib.getRequest(opts, function (res) {
-          res.on('data', function (buf) {
-            　console.log(buf);
-          });
           k(res)();
         });
-        console.log(req);
         return req;
       };
     };

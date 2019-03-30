@@ -3,17 +3,20 @@ module Main where
 import Prelude
 
 import Effect (Effect)
-import Effect.Console (log, logShow)
+import Effect.Aff (launchAff_)
+import Effect.Class (liftEffect)
+import Effect.Console (logShow)
 import Network.HTTP as HTTP
-import Node.Stream (end)
+import Node.Encoding (Encoding(..))
+import Node.Stream (Readable, onDataString)
+
 main :: Effect Unit
 main = do
-  log "You should add some tests."
-  req <- HTTP.requestFromURI "/index.js" logResp
-  end (HTTP.requestAsStream req) (pure unit)
-  log "aaa"
+  launchAff_ $ do 
+    str <- HTTP.fetchFullString "http://www.baidu.com"
+    liftEffect $ logShow str
 
-logResp::HTTP.Response -> Effect Unit
-logResp resp = do
-  logShow "resp"
- 
+onResp::forall w. (Readable w) -> Effect Unit
+onResp resp = do
+  onDataString resp UTF8 (logShow)
+  logShow ">>>"
