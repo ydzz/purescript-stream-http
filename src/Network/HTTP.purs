@@ -2,7 +2,8 @@ module Network.HTTP (
   fetchFullBuffer,
   fetchFullString,
   request,
-  RequestMethod(..)
+  RequestMethod(..),
+  Request(..)
 ) where
 
 import Prelude
