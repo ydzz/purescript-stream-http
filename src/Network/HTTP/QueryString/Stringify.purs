@@ -134,7 +134,7 @@ _stringify object prefix generateArrayPrefix encoder filter sortFunc  allowDots 
    arrayPrefix::String -> String
    arrayPrefix k = case generateArrayPrefix of
          Comma      -> prefix
-         ap         -> (getArrayPrefix ap) k prefix 
+         ap         -> (getArrayPrefix ap) prefix k  
 
 showJson::Json -> String
 showJson json =  caseJson  (const "()")  -- Unit -> a 

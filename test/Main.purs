@@ -2,8 +2,7 @@ module Test.Main where
 
 import Prelude
 
-import Data.Argonaut (fromArray, fromObject, fromString)
-import Data.Array as A
+import Data.Argonaut (fromArray, fromString)
 import Data.Tuple.Nested ((/\))
 import Effect (Effect)
 import Effect.Console (logShow)
