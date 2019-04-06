@@ -3,7 +3,8 @@ module Network.HTTP (
   fetchFullString,
   request,
   RequestMethod(..),
-  Request(..)
+  RequestOption(..),
+  module Internal
 ) where
 
 import Prelude
@@ -40,18 +41,18 @@ instance showRequestMethod :: Show RequestMethod where
    show CONNECT    = "CONNECT"
    show (Custom s) = s
 
-type Request =  {
+type RequestOption =  {
   reqURL    ::URL.URL,
   reqMethod ::RequestMethod,
   reqHeader ::O.Object String
 }
 
-request::forall w. Request -> ((Readable w) -> Effect Unit) -> Effect (Writable w)
+request::RequestOption -> (Internal.Response -> Effect Unit) -> Effect Internal.Request
 request req callback = do
   let obj = reqToObject req
   Internal.requestImpl obj callback
 
-reqToObject::Request -> Foreign
+reqToObject::RequestOption -> Foreign
 reqToObject req = options $ 
                   Internal.hostname := (unsafeCoerce req.reqURL.hostname) <>
                   Internal.protocol := (unsafeCoerce req.reqURL.protocol) <>
@@ -77,19 +78,21 @@ fetchFullBuffer url = do
   reqOptions = {reqURL : URL.parse url,reqMethod:GET,reqHeader:O.fromFoldable ["Access-Control-Allow-Origin" /\ "*"]}
   runRequest::(Either Error (Either Error Buf.Buffer) -> Effect Unit) -> Effect Canceler
   runRequest ef = do
-    reqWriter <- request reqOptions (onReadFunc ef)
+    req <- request reqOptions (onReadFunc ef)
+    let reqWriter = Internal.requestAsStream req
     end reqWriter (pure unit)
     onError reqWriter \err -> do
         ef $ Right $ Left err
     pure $ Canceler (\e -> pure unit)
-  onReadFunc::forall w. (Either Error (Either Error Buf.Buffer) -> Effect Unit) -> (Readable w) -> Effect Unit
+  onReadFunc::(Either Error (Either Error Buf.Buffer) -> Effect Unit) -> Internal.Response -> Effect Unit
   onReadFunc ef read = do
    emptyBuff <- Buf.create 0
    recvBuff <- Ref.new emptyBuff
-   onData read  (\inBuffer -> do
+   let readw = Internal.responseAsStream read
+   onData readw  (\inBuffer -> do
      Ref.modify_ (\srcBuf -> unsafePerformEffect $ Buf.concat [srcBuf,inBuffer]) recvBuff
    )
-   onEnd read $ do
+   onEnd readw $ do
     allBuff <- Ref.read recvBuff
     ef $ Right $ Right allBuff
    --onError read \err -> do

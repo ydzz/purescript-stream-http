@@ -1,11 +1,12 @@
 module Network.HTTP.Internal where
 import Prelude
 
+import Data.Maybe (Maybe)
 import Data.Options (Option, Options, opt, options)
 import Effect (Effect)
 import Foreign (Foreign, unsafeToForeign)
-import Foreign.Object (Object)
-import Node.Stream (Readable, Writable)
+import Foreign.Object as O
+import Node.Stream (Writable, Readable)
 import Node.URL as URL
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -13,7 +14,7 @@ data RequestFamily = IPV4 | IPV6
 
 data RequestOptions
 
-newtype RequestHeaders = RequestHeaders (Object String)
+newtype RequestHeaders = RequestHeaders (O.Object String)
 
 protocol :: Option RequestOptions String
 protocol = opt "protocol"
@@ -43,15 +44,44 @@ cert :: Option RequestOptions String
 cert = opt "cert"
 
 
+foreign import data Request :: Type
 
-foreign import requestImpl ::forall w. Foreign -> ((Readable w) -> Effect Unit) -> Effect (Writable w)
+foreign import data Response :: Type
 
-foreign import setTimeout ::forall w. (Writable w) -> Int -> Effect Unit -> Effect Unit
+requestAsStream :: forall r. Request -> Writable r
+requestAsStream = unsafeCoerce
+
+responseAsStream :: forall w. Response -> Readable w
+responseAsStream = unsafeCoerce
 
 
-request ::forall w. Options RequestOptions -> ((Readable w) -> Effect Unit) -> Effect (Writable w)
-request = requestImpl <<< options
+foreign import requestImpl ::Foreign -> (Response-> Effect Unit) -> Effect Request
+
+foreign import setTimeout ::Response -> Int -> Effect Unit -> Effect Unit
 
 
-requestFromURI ::forall w. String -> ((Readable w) -> Effect Unit) -> Effect (Writable w)
+request' ::Options RequestOptions -> (Response -> Effect Unit) -> Effect Request
+request' = requestImpl <<< options
+
+requestFromURI ::String -> (Response -> Effect Unit) -> Effect Request
 requestFromURI = requestImpl <<< unsafeToForeign <<< URL.parse
+
+httpVersion :: Response -> String
+httpVersion = _.httpVersion <<< unsafeCoerce
+
+headers' :: forall a. Response -> O.Object a
+headers' = _.headers <<< unsafeCoerce
+
+
+responseHeaders :: Response -> O.Object String
+responseHeaders res = O.delete "set-cookie" $ headers' res
+
+responseCookies :: Response -> Maybe (Array String)
+responseCookies res = O.lookup "set-cookie" $ headers' res
+
+
+statusCode :: Response -> Int
+statusCode = _.statusCode <<< unsafeCoerce
+
+statusMessage :: Response -> String
+statusMessage = _.statusMessage <<< unsafeCoerce
