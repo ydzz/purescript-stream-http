@@ -11,8 +11,8 @@ module Network.HTTP.QueryString.Stringify(
 
 import Prelude
 
-import Data.Argonaut (Json, caseJson, caseJsonArray, fromArray, fromObject, fromString, isArray, isBoolean, isNumber, isString, toObject)
-import Data.Array (sortBy)
+import Data.Argonaut (Json, caseJson, caseJsonArray, fromObject, fromString, isArray, isBoolean, isNumber, isString, toObject)
+import Data.Array (concat, singleton, sortBy)
 import Data.Identity (Identity(..))
 import Data.Maybe (Maybe(..), fromJust, maybe)
 import Foreign.Object (Object, keys)
@@ -24,8 +24,8 @@ foreign import defaultEncode ::String -> Encoder -> String -> String
 
 foreign import rFC1738 ::String -> String
 
---joinJsonArray ["1","2","3"] "." = "1.2.3"
---joinJsonArray ["1","2","3",["4","5"]] "." = "1.2.3.4.5"
+--joinJsonArray ["1","2","3"] "." = "1,2,3"
+--joinJsonArray ["1","2","3",["4","5"]] "." = "1,2,3,4,5"
 foreign import joinJsonArray ::Array Json -> Json -> Json
 
 foreign import jslog ::forall a. a ->  Unit
@@ -50,7 +50,7 @@ getArrayPrefix::ArrayPrefixGenerator -> (String -> String -> String)
 getArrayPrefix Brackets = \prefix _ -> prefix <> "[]"
 getArrayPrefix Comma    = const
 getArrayPrefix Indices  = \prefix key -> prefix <> "[" <> key <> "]"
-getArrayPrefix Repeat   = const
+getArrayPrefix Repeat   = \prefix _ -> prefix
 
 type StringifyOption = {
   prefix             ::String,
@@ -82,7 +82,7 @@ defaultStringifyOption = {
  }
 
 stringify::Object Json -> StringifyOption -> String
-stringify json param = let arr       = map mapFunc (sortedKeys objKeys)
+stringify json param = let arr       = concat $ map mapFunc (sortedKeys objKeys)
                            joinedStr = showJson $ joinJsonArray arr (fromString param.delimiter)
                        in if param.addQueryPrefix then "?" <> joinedStr else joinedStr
  where
@@ -92,13 +92,13 @@ stringify json param = let arr       = map mapFunc (sortedKeys objKeys)
   objKeys = maybe (keys json) filterFunc param.filter
   filterFunc (FilterFunc fn) = keys $ unsafePartial $ fromJust $ toObject $ fn "" (fromObject json)
   filterFunc (FilterArray arr) = arr
-  mapFunc::String -> Json
+  mapFunc::String -> Array Json
   mapFunc  k = runIdentity $ _stringify (getObjectByKey (fromObject json) k) k param.generateArrayPrefix param.encoder 
                                         param.filter param.sort param.allowDots param.formatter param.encodeValuesOnly param.charset
 
 
 _stringify::Json -> String -> ArrayPrefixGenerator -> Maybe Encoder ->
-            Maybe Filter -> SortFunc -> Boolean -> QSFormatter -> Boolean -> String -> Identity Json
+            Maybe Filter -> SortFunc -> Boolean -> QSFormatter -> Boolean -> String -> Identity (Array Json)
 _stringify object prefix generateArrayPrefix encoder filter sortFunc  allowDots formatter encodeValuesOnly charset = do
    let obj = case filter of
                         Just (FilterFunc  ffn)  -> ffn prefix object
@@ -110,9 +110,9 @@ _stringify object prefix generateArrayPrefix encoder filter sortFunc  allowDots 
  where
    joinedArray::(Array Json) -> Json
    joinedArray jarr = joinJsonArray jarr (fromString ".")
-   ifJsonType::Json -> Json
-   ifJsonType json | (isString json || isBoolean json || isNumber json) = maybe (returnNoEncoder json) (returnEncoder json) encoder
-   ifJsonType json |  otherwise = let sortedKeys = getKeys json filter in fromArray $ map (mapFunc json) sortedKeys
+   ifJsonType::Json -> Array Json
+   ifJsonType json | (isString json || isBoolean json || isNumber json) = singleton $ maybe (returnNoEncoder json) (returnEncoder json) encoder
+   ifJsonType json |  otherwise = let sortedKeys = getKeys json filter in  concat $ map (mapFunc json) sortedKeys
    returnNoEncoder::Json -> Json
    returnNoEncoder   obj = fromString $ (formatterFunc prefix) <> "=" <> formatterFunc (showJson obj)
    returnEncoder::Json -> Encoder -> Json
@@ -125,11 +125,11 @@ _stringify object prefix generateArrayPrefix encoder filter sortFunc  allowDots 
    getKeys json (Just _)                =  []
    getKeys json Nothing  = let okeys = jsKeys json
                            in  maybe okeys (\s->sortBy s okeys) sortFunc
-   mapFunc::Json -> String -> Json
+   mapFunc::Json -> String -> Array Json
    mapFunc json k = if isArray json 
-                    then runIdentity $  _stringify (getObjectByKey json k) (arrayPrefix k) generateArrayPrefix encoder filter 
+                    then  runIdentity $  _stringify (getObjectByKey json k) (arrayPrefix k) generateArrayPrefix encoder filter 
                                                    sortFunc allowDots formatter encodeValuesOnly charset
-                    else runIdentity $  _stringify (getObjectByKey json k) (if allowDots then "." <> k else "["<>k<>"]") generateArrayPrefix 
+                    else  runIdentity $  _stringify (getObjectByKey json k) (if allowDots then "." <> k else "["<>k<>"]") generateArrayPrefix 
                                                     encoder filter sortFunc allowDots formatter encodeValuesOnly charset
    arrayPrefix::String -> String
    arrayPrefix k = case generateArrayPrefix of
