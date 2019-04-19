@@ -6,7 +6,8 @@ module Network.HTTP.QueryString.Stringify(
   Filter(..),
   ArrayPrefixGenerator(..),
   QSFormatter(..),
-  SortFunc
+  SortFunc,
+  defaultEncode
 ) where
 
 import Prelude
@@ -70,7 +71,7 @@ defaultStringifyOption::StringifyOption
 defaultStringifyOption = {
    prefix:"",
    generateArrayPrefix:Indices,
-   encoder:Nothing,
+   encoder:Just $ Encoder defaultEncode,
    filter:Nothing,
    allowDots:false,
    formatter:RFC3986,
